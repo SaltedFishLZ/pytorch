@@ -23,7 +23,8 @@ class DistributedSampler(Sampler):
         shuffle (optional): If true (default), sampler will shuffle the indices
     """
 
-    def __init__(self, dataset, num_replicas=None, rank=None, shuffle=True):
+    def __init__(self, dataset, num_replicas=None, rank=None, shuffle=True,
+                 drop_last=False, duplicate_last=True):
         if num_replicas is None:
             if not dist.is_available():
                 raise RuntimeError("Requires distributed package to be available")
@@ -32,14 +33,24 @@ class DistributedSampler(Sampler):
             if not dist.is_available():
                 raise RuntimeError("Requires distributed package to be available")
             rank = dist.get_rank()
+        if drop_last and duplicate_last:
+            raise ValueError("drop_last & duplicate_last cannot be True both")
         self.dataset = dataset
         self.num_replicas = num_replicas
         self.rank = rank
         self.epoch = 0
-        self.num_samples = int(math.ceil(len(self.dataset) * 1.0 / self.num_replicas))
-        self.total_size = self.num_samples * self.num_replicas
         self.shuffle = shuffle
-
+        self.drop_last = drop_last
+        self.duplicate_last = duplicate_last
+        if duplicate_last:
+            self.num_samples = int(math.ceil(len(self.dataset) * 1.0 / self.num_replicas))
+            self.total_size = self.num_samples * self.num_replicas
+        elif drop_last:
+            self.num_samples = int(math.floor(len(self.dataset) * 1.0 / self.num_replicas))
+            self.total_size = self.num_samples * self.num_replicas
+        else:
+            raise NotImplementedError
+        
     def __iter__(self):
         # deterministically shuffle based on epoch
         g = torch.Generator()
@@ -49,9 +60,12 @@ class DistributedSampler(Sampler):
         else:
             indices = list(range(len(self.dataset)))
 
-
-        # add extra samples to make it evenly divisible
-        indices += indices[:(self.total_size - len(indices))]
+        if self.duplicate_last:
+            # add extra samples to make it evenly divisible
+            indices += indices[: (self.total_size - len(indices))]
+        elif self.drop_last:
+            # drop last samples
+            indices = indices[: self.total_size]
         assert len(indices) == self.total_size
 
         # subsample
