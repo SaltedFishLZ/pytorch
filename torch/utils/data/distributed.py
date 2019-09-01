@@ -50,7 +50,7 @@ class DistributedSampler(Sampler):
             self.total_size = self.num_samples * self.num_replicas
         else:
             raise NotImplementedError
-        
+
     def __iter__(self):
         # deterministically shuffle based on epoch
         g = torch.Generator()
@@ -69,7 +69,7 @@ class DistributedSampler(Sampler):
         assert len(indices) == self.total_size
 
         # subsample
-        indices = indices[self.rank:self.total_size:self.num_replicas]
+        indices = indices[self.rank: self.total_size: self.num_replicas]
         assert len(indices) == self.num_samples
 
         return iter(indices)
